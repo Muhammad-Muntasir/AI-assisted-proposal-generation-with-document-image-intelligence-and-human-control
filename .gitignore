@@ -1,0 +1,11 @@
+node_modules/
+__pycache__/
+*.pyc
+infrastructure/dist/
+infrastructure/cdk.out/
+.env
+.env.local
+frontend/.amplify/
+.DS_Store
+.vscode/
+.idea/

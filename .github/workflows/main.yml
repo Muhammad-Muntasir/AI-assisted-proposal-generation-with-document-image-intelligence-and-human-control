@@ -1,0 +1,101 @@
+name: Deploy AI Proposal Platform
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # ── 1. Deploy Backend Lambda ──────────────────────────────────────────────
+  deploy-backend:
+    name: Deploy Backend to Lambda
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Linux-compatible packages into backend/
+        run: |
+          pip install \
+            --platform manylinux2014_x86_64 \
+            --python-version 3.11 \
+            --only-binary=:all: \
+            --target backend/ \
+            google-genai==1.70.0 \
+            boto3==1.42.84 \
+            Pillow==12.2.0 \
+            pydantic==2.12.5 \
+            pydantic-core==2.41.5
+
+      - name: Zip backend
+        run: |
+          cd backend
+          zip -r ../backend_deploy.zip .
+          cd ..
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload zip to S3
+        run: |
+          aws s3 cp backend_deploy.zip s3://aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw/backend_deploy.zip
+
+      - name: Update generate Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ai-proposal-generate \
+            --s3-bucket aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw \
+            --s3-key backend_deploy.zip
+
+      - name: Update proposals Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ai-proposal-proposals \
+            --s3-bucket aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw \
+            --s3-key backend_deploy.zip
+
+  # ── 2. Build & Deploy Frontend ────────────────────────────────────────────
+  deploy-frontend:
+    name: Build & Deploy Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build
+        run: npm run build
+        working-directory: frontend
+        env:
+          VITE_API_URL: /api
+          VITE_COGNITO_USER_POOL_ID: ${{ secrets.VITE_COGNITO_USER_POOL_ID }}
+          VITE_COGNITO_CLIENT_ID: ${{ secrets.VITE_COGNITO_CLIENT_ID }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy frontend dist to S3
+        run: |
+          aws s3 sync frontend/dist/ s3://${{ secrets.FRONTEND_BUCKET }} --delete

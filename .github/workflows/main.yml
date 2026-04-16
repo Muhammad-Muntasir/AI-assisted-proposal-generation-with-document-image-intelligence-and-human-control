@@ -18,6 +18,15 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Clean old packages from backend/
+        run: |
+          find backend/ -mindepth 1 -maxdepth 1 \
+            ! -name 'generate.py' \
+            ! -name 'proposals.py' \
+            ! -name 'requirements.txt' \
+            ! -name 'tests' \
+            -exec rm -rf {} + 2>/dev/null || true
+
       - name: Install Linux-compatible packages into backend/
         run: |
           pip install \

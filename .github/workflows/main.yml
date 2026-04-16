@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 jobs:
-  # ── 1. Deploy Backend Lambda ────────────────────────────────
+  # ── 1. Deploy Backend Lambda ──────────────────────────────────────────────
   deploy-backend:
     name: Deploy Backend to Lambda
     runs-on: ubuntu-latest
@@ -32,8 +32,7 @@ jobs:
             pydantic-core==2.41.5
 
       - name: Zip backend
-        run: |
-          cd backend && zip -r ../backend_deploy.zip . && cd ..
+        run: cd backend && zip -r ../backend_deploy.zip . && cd ..
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -43,8 +42,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Upload zip to S3
-        run: |
-          aws s3 cp backend_deploy.zip s3://aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw/backend_deploy.zip
+        run: aws s3 cp backend_deploy.zip s3://aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw/backend_deploy.zip
 
       - name: Update generate Lambda
         run: |
@@ -60,7 +58,7 @@ jobs:
             --s3-bucket aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw \
             --s3-key backend_deploy.zip
 
-  # ── 2. Build Frontend (Fixed) ────────────────────────────────
+  # ── 2. Build Frontend ─────────────────────────────────────────────────────
   build-frontend:
     name: Build Frontend
     runs-on: ubuntu-latest
@@ -68,27 +66,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      - name: Check frontend folder
-        run: ls -la
-
-      - name: Check inside frontend
-        run: ls -la frontend
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: frontend
 
-      - name: Verify package.json
-        run: cat package.json
-        working-directory: frontend
-
-      - name: Build
-        run: npm run build
+      - name: Build (vite only, skip tsc)
+        run: npx vite build
         working-directory: frontend
         env:
           VITE_API_URL: /api

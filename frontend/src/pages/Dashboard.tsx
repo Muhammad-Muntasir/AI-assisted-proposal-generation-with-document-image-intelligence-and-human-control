@@ -3,7 +3,6 @@ import Navbar from '../components/Navbar'
 import Sidebar from '../components/Sidebar'
 import ProposalForm, { type GenerateRequest, type ProposalFormHandle } from '../components/ProposalForm'
 import DraftOutput from '../components/DraftOutput'
-
 interface Section {
   sectionName: string
   content: string
@@ -23,6 +22,7 @@ const API_BASE = import.meta.env.VITE_API_URL as string
 
 export default function Dashboard() {
   const [activeTab, setActiveTab]           = useState('new')
+  const [sidebarOpen, setSidebarOpen]       = useState(false)
   const [draft, setDraft]                   = useState<DraftRecord | null>(null)
   const [error, setError]                   = useState<string | null>(null)
   const [isLoading, setIsLoading]           = useState(false)
@@ -108,11 +108,11 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F9FAFB]">
-      <Navbar />
+      <Navbar onMenuClick={() => setSidebarOpen(true)} />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         {/* Main content */}
         <main className="flex-1 overflow-y-auto p-6">
@@ -152,15 +152,13 @@ export default function Dashboard() {
             </p>
           </div>
 
-          {/* Two-column layout — only for new proposal tab */}
-          {activeTab !== 'settings' && activeTab !== 'history' && (
+          {activeTab === 'new' && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
               <ProposalForm ref={formRef} onSubmit={handleSubmit} isLoading={isLoading} disabled={false} />
               <DraftOutput draft={draft} error={error} onApprove={handleApprove} onRetry={() => setError(null)} />
             </div>
           )}
 
-          {/* History placeholder */}
           {activeTab === 'history' && (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-10 text-center text-gray-400">
               <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

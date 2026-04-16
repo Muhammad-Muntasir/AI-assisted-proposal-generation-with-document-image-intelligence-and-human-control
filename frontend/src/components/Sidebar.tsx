@@ -3,6 +3,8 @@ import { useTheme } from '../context/ThemeContext'
 interface SidebarProps {
   activeTab: string
   onTabChange: (tab: string) => void
+  isOpen: boolean
+  onClose: () => void
 }
 
 const navItems = [
@@ -45,77 +47,97 @@ const navItems = [
   },
 ]
 
-export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
+export default function Sidebar({ activeTab, onTabChange, isOpen, onClose }: SidebarProps) {
   const { theme, toggleTheme } = useTheme()
   const isDark = theme === 'dark'
 
+  function handleTabChange(id: string) {
+    onTabChange(id)
+    onClose() // close sidebar on mobile after selecting
+  }
+
   return (
-    <aside className="w-60 bg-white border-r border-gray-200 flex flex-col py-6 px-3 shrink-0">
-      <nav className="space-y-1">
-        {navItems.map((item) => {
-          const isActive = activeTab === item.id
-          return (
-            <button
-              key={item.id}
-              onClick={() => onTabChange(item.id)}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                isActive
-                  ? 'text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-              }`}
-              style={isActive ? { background: 'linear-gradient(135deg, #4F46E5, #06B6D4)' } : {}}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          )
-        })}
-      </nav>
-
-      {/* Settings panel — shown when Settings tab is active */}
-      {activeTab === 'settings' && (
-        <div className="mt-4 px-2 space-y-3">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2">Appearance</p>
-
-          {/* Light theme button */}
-          <button
-            onClick={() => !isDark || toggleTheme()}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border ${
-              !isDark
-                ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
-                : 'border-gray-200 text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
-            </svg>
-            Light Theme
-            {!isDark && <span className="ml-auto w-2 h-2 rounded-full bg-indigo-500" />}
-          </button>
-
-          {/* Dark theme button */}
-          <button
-            onClick={() => isDark || toggleTheme()}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border ${
-              isDark
-                ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
-                : 'border-gray-200 text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-            </svg>
-            Dark Theme
-            {isDark && <span className="ml-auto w-2 h-2 rounded-full bg-indigo-500" />}
-          </button>
-        </div>
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
+          onClick={onClose}
+        />
       )}
 
-      {/* Bottom badge */}
-      <div className="mt-auto px-4 py-3 rounded-xl bg-indigo-50 border border-indigo-100">
-        <p className="text-xs font-semibold text-indigo-700">AI Powered</p>
-        <p className="text-xs text-indigo-500 mt-0.5">Gemini 2.5 Flash</p>
-      </div>
-    </aside>
+      {/* Sidebar */}
+      <aside className={`
+        fixed top-0 left-0 h-full w-64 bg-white border-r border-gray-200 flex flex-col py-6 px-3 z-40
+        transform transition-transform duration-300 ease-in-out
+        lg:static lg:translate-x-0 lg:w-60 lg:shrink-0 lg:z-auto
+        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        {/* Mobile close button */}
+        <div className="flex items-center justify-between mb-4 lg:hidden px-2">
+          <span className="text-sm font-semibold text-gray-700">Menu</span>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100">
+            <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <nav className="space-y-1">
+          {navItems.map((item) => {
+            const isActive = activeTab === item.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => handleTabChange(item.id)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  isActive ? 'text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+                style={isActive ? { background: 'linear-gradient(135deg, #4F46E5, #06B6D4)' } : {}}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            )
+          })}
+        </nav>
+
+        {/* Settings panel */}
+        {activeTab === 'settings' && (
+          <div className="mt-4 px-2 space-y-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-2">Appearance</p>
+            <button
+              onClick={() => isDark && toggleTheme()}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border ${
+                !isDark ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+              </svg>
+              Light Theme
+              {!isDark && <span className="ml-auto w-2 h-2 rounded-full bg-indigo-500" />}
+            </button>
+            <button
+              onClick={() => !isDark && toggleTheme()}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 border ${
+                isDark ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+              Dark Theme
+              {isDark && <span className="ml-auto w-2 h-2 rounded-full bg-indigo-500" />}
+            </button>
+          </div>
+        )}
+
+        <div className="mt-auto px-4 py-3 rounded-xl bg-indigo-50 border border-indigo-100">
+          <p className="text-xs font-semibold text-indigo-700">AI Powered</p>
+          <p className="text-xs text-indigo-500 mt-0.5">Gemini 2.5 Flash</p>
+        </div>
+      </aside>
+    </>
   )
 }

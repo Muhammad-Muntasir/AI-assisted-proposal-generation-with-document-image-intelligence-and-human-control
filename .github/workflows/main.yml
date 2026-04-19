@@ -21,8 +21,7 @@ jobs:
       - name: Clean old packages from backend/
         run: |
           find backend/ -mindepth 1 -maxdepth 1 \
-            ! -name 'generate.py' \
-            ! -name 'proposals.py' \
+            ! -name 'handler.py' \
             ! -name 'requirements.txt' \
             ! -name 'tests' \
             -exec rm -rf {} + 2>/dev/null || true
@@ -53,17 +52,10 @@ jobs:
       - name: Upload zip to S3
         run: aws s3 cp backend_deploy.zip s3://aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw/backend_deploy.zip
 
-      - name: Update generate Lambda
+      - name: Update unified Lambda
         run: |
           aws lambda update-function-code \
-            --function-name ai-proposal-generate \
-            --s3-bucket aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw \
-            --s3-key backend_deploy.zip
-
-      - name: Update proposals Lambda
-        run: |
-          aws lambda update-function-code \
-            --function-name ai-proposal-proposals \
+            --function-name ai-proposal-unified \
             --s3-bucket aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw \
             --s3-key backend_deploy.zip
 

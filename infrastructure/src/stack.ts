@@ -52,52 +52,30 @@ export class AiProposalStack extends cdk.Stack {
       { parameterName: '/ai-proposal/gemini-api-key' },
     );
 
-    // ── Lambda Functions ──────────────────────────────────────────────────────
+    // ── Lambda Function (Unified) ─────────────────────────────────────────────
 
-    const generateLambda = new lambda.Function(this, 'GenerateLambda', {
-      functionName: 'ai-proposal-generate',
+    const unifiedLambda = new lambda.Function(this, 'UnifiedLambda', {
+      functionName: 'ai-proposal-unified',
       runtime: lambda.Runtime.PYTHON_3_11,
-      handler: 'generate.handler',
+      handler: 'handler.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../backend')),
       timeout: cdk.Duration.seconds(120),
       memorySize: 512,
       environment: {
         DRAFT_TABLE_NAME: draftTable.tableName,
+        APPROVED_TABLE_NAME: approvedTable.tableName,
         UPLOADS_BUCKET_NAME: uploadBucket.bucketName,
         GEMINI_API_KEY_PARAM: '/ai-proposal/gemini-api-key',
       },
     });
 
-    const proposalsLambda = new lambda.Function(this, 'ProposalsLambda', {
-      functionName: 'ai-proposal-proposals',
-      runtime: lambda.Runtime.PYTHON_3_11,
-      handler: 'proposals.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../backend')),
-      timeout: cdk.Duration.seconds(30),
-      memorySize: 256,
-      environment: {
-        DRAFT_TABLE_NAME: draftTable.tableName,
-        APPROVED_TABLE_NAME: approvedTable.tableName,
-        UPLOADS_BUCKET_NAME: uploadBucket.bucketName,
-      },
-    });
-
     // ── IAM Grants ────────────────────────────────────────────────────────────
 
-    // generate.py: R/W on proposals_draft, R/W on S3, invoke self async
-    draftTable.grantReadWriteData(generateLambda);
-    uploadBucket.grantReadWrite(generateLambda);
-    geminiApiKeyParam.grantRead(generateLambda);
-    // Allow the generate Lambda to invoke itself asynchronously (for Gemini async pattern)
-    generateLambda.addToRolePolicy(new cdk.aws_iam.PolicyStatement({
-      actions: ['lambda:InvokeFunction'],
-      resources: [generateLambda.functionArn],
-    }));
-
-    // proposals.py: R/W on proposals_approved, R on proposals_draft, R/W on S3 (presigned URLs)
-    approvedTable.grantReadWriteData(proposalsLambda);
-    draftTable.grantReadWriteData(proposalsLambda);
-    uploadBucket.grantReadWrite(proposalsLambda);
+    // Unified Lambda needs access to both tables, S3, and SSM
+    draftTable.grantReadWriteData(unifiedLambda);
+    approvedTable.grantReadWriteData(unifiedLambda);
+    uploadBucket.grantReadWrite(unifiedLambda);
+    geminiApiKeyParam.grantRead(unifiedLambda);
 
     // ── Cognito User Pool (Phase 2 ready — not attached as authorizer) ────────
 
@@ -140,28 +118,27 @@ export class AiProposalStack extends cdk.Stack {
       },
     });
 
-    const generateIntegration = new apigateway.LambdaIntegration(generateLambda);
-    const proposalsIntegration = new apigateway.LambdaIntegration(proposalsLambda);
+    const unifiedIntegration = new apigateway.LambdaIntegration(unifiedLambda);
 
     // POST /generate
     const generateResource = api.root.addResource('generate');
-    generateResource.addMethod('POST', generateIntegration);
+    generateResource.addMethod('POST', unifiedIntegration);
 
     // POST /approve
     const approveResource = api.root.addResource('approve');
-    approveResource.addMethod('POST', proposalsIntegration);
+    approveResource.addMethod('POST', unifiedIntegration);
 
     // POST /upload-url
     const uploadUrlResource = api.root.addResource('upload-url');
-    uploadUrlResource.addMethod('POST', proposalsIntegration);
+    uploadUrlResource.addMethod('POST', unifiedIntegration);
 
     // GET /proposals
     // GET /proposals/{id}
     const proposalsResource = api.root.addResource('proposals');
-    proposalsResource.addMethod('GET', proposalsIntegration);
+    proposalsResource.addMethod('GET', unifiedIntegration);
 
     const proposalByIdResource = proposalsResource.addResource('{id}');
-    proposalByIdResource.addMethod('GET', proposalsIntegration);
+    proposalByIdResource.addMethod('GET', unifiedIntegration);
 
     // ── Stack Outputs ─────────────────────────────────────────────────────────
 

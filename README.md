@@ -21,9 +21,9 @@ Google Gemini 2.5 Flash, accessed via the `google-genai` Python SDK.
 
 This means the structure is always predictable and machine-verifiable, while the content remains contextually rich.
 
-### Prompt Orchestration in `generate.py`
+### Prompt Orchestration in `handler.py`
 
-The handler follows this sequence on every `POST /generate` request:
+The unified Lambda handler routes all API requests and follows this sequence on every `POST /generate` request:
 
 1. Validate inputs — require at least survey notes or one file key.
 2. Fetch SOP document content from S3 (see SOP section below).
@@ -60,7 +60,7 @@ SOP (Standard Operating Procedure) documents define a company's writing guidelin
 1. The user uploads SOP documents (PDF or Word) via the `ProposalForm`.
 2. The frontend requests a presigned S3 PUT URL for each file via `POST /upload-url`, then uploads directly to S3.
 3. The S3 object keys are sent to `POST /generate` in the `sopKeys` field.
-4. `generate.py` fetches the SOP files from S3 and reads their text content.
+4. `handler.py` fetches the SOP files from S3 and reads their text content.
 5. The extracted text is injected **verbatim** into the Gemini system prompt under the `COMPANY WRITING GUIDELINES (SOP):` heading.
 6. Gemini receives the SOP content as authoritative instructions before generating any proposal content.
 
@@ -82,16 +82,16 @@ Every section in the AI draft includes a `rationale` field that explains why tha
 
 The platform uses two completely separate DynamoDB tables with distinct IAM permissions:
 
-- `proposals_draft` — written only by `generate.py`. Stores AI-generated drafts with `status=PENDING`.
-- `proposals_approved` — written only by `proposals.py` on an explicit `POST /approve` request. Stores human-approved final records.
+- `proposals_draft` — written only by the unified Lambda. Stores AI-generated drafts with `status=PENDING`.
+- `proposals_approved` — written only by the unified Lambda on an explicit `POST /approve` request. Stores human-approved final records.
 
-`generate.py` has **zero IAM write access** to `proposals_approved`. Even if a code bug were introduced, the write would fail at the AWS permission layer. AI-generated content can never reach the approved table without a human explicitly triggering the approve action.
+The Lambda has write access to both tables but enforces strict separation through application logic. AI-generated content can never reach the approved table without a human explicitly triggering the approve action.
 
 ### Failure Modes — How the System Behaves When AI Is Incomplete or Unavailable
 
 If Gemini returns an error, times out, returns malformed JSON, or returns a response missing any required section:
 
-- `generate.py` returns HTTP 502 with a descriptive error message.
+- The unified Lambda returns HTTP 502 with a descriptive error message.
 - Nothing is written to DynamoDB — no partial or empty draft records are created.
 - The frontend `DraftOutput` component displays a user-friendly error message and a retry button.
 - `ProposalForm` preserves all user inputs (survey notes, uploaded files, selected reference) so the user can retry without re-entering data.
@@ -209,8 +209,7 @@ Then connect the `frontend/` directory to AWS Amplify Hosting:
 ```
 .
 ├── backend/
-│   ├── generate.py          # Lambda: POST /generate — calls Gemini, saves PENDING draft
-│   ├── proposals.py         # Lambda: POST /approve, POST /upload-url, GET /proposals, GET /proposals/{id}
+│   ├── handler.py           # Unified Lambda: handles all endpoints (generate, approve, upload-url, proposals)
 │   ├── requirements.txt     # Python dependencies
 │   └── tests/               # Unit and property-based tests (Hypothesis)
 │

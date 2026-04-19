@@ -49,11 +49,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      - name: Upload zip to S3
+        run: aws s3 cp backend_deploy.zip s3://aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw/lambda/backend_deploy.zip
+
       - name: Update unified Lambda
         run: |
           aws lambda update-function-code \
             --function-name ai-proposal-unified \
-            --zip-file fileb://backend_deploy.zip
+            --s3-bucket aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw \
+            --s3-key lambda/backend_deploy.zip
 
   # ── 2. Build Frontend ─────────────────────────────────────────────────────
   build-frontend:
@@ -91,4 +95,4 @@ jobs:
 
       - name: Deploy to S3
         run: |
-          aws s3 sync frontend/dist/ s3://aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw/ --exclude "uploads/*" --delete
+          aws s3 sync frontend/dist/ s3://aiproposalstack-uploadsbucket5e5e9b64-blphh0ajfcnw/ --exclude "uploads/*" --exclude "lambda/*" --delete

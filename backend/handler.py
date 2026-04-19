@@ -252,7 +252,7 @@ def handle_generate(event: dict) -> dict:
         for attempt in range(4):
             try:
                 response = client.models.generate_content(
-                    model="gemini-1.5-flash",
+                    model="gemini-2.0-flash",
                     contents=[types.Content(role="user", parts=parts)],
                     config=types.GenerateContentConfig(system_instruction=system_prompt),
                 )

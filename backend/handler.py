@@ -34,9 +34,10 @@ UPLOADS_BUCKET_NAME  = os.environ.get("UPLOADS_BUCKET_NAME", "uploads-bucket")
 GEMINI_API_KEY_PARAM = os.environ.get("GEMINI_API_KEY_PARAM", "/ai-proposal/gemini-api-key")
 
 # AWS clients
-dynamodb   = boto3.resource("dynamodb")
-s3_client  = boto3.client("s3")
-ssm_client = boto3.client("ssm")
+dynamodb      = boto3.resource("dynamodb")
+s3_client     = boto3.client("s3")
+ssm_client    = boto3.client("ssm")
+lambda_client = boto3.client("lambda")
 
 # CORS headers
 CORS_HEADERS = {
@@ -208,7 +209,7 @@ def _compute_edits_made(ai_sections: list, final_sections: list) -> dict:
 # ---------------------------------------------------------------------------
 
 def handle_generate(event: dict) -> dict:
-    """POST /generate — Generate AI proposal draft."""
+    """POST /generate — Kick off async AI proposal generation and return proposalId immediately."""
     try:
         body = json.loads(event.get("body") or "{}")
     except (json.JSONDecodeError, TypeError):
@@ -225,30 +226,59 @@ def handle_generate(event: dict) -> dict:
     if not has_notes and not has_files:
         return _response(400, {"error": "Request must include surveyNotes or at least one file key"})
 
+    # Create proposal record immediately with PROCESSING status
+    proposal_id = str(uuid.uuid4())
+    created_at  = datetime.now(timezone.utc).isoformat()
+    draft_table = dynamodb.Table(DRAFT_TABLE_NAME)
+    draft_table.put_item(Item={
+        "proposalId": proposal_id,
+        "status":     "PROCESSING",
+        "createdAt":  created_at,
+        "version":    1,
+    })
+
+    # Fire async Lambda self-invocation to do the heavy Gemini work
+    function_name = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "ai-proposal-unified")
+    lambda_client.invoke(
+        FunctionName=function_name,
+        InvocationType="Event",  # async — no wait
+        Payload=json.dumps({
+            "_async_generate": True,
+            "proposalId":           proposal_id,
+            "surveyNotes":          survey_notes,
+            "photoKeys":            photo_keys,
+            "documentKeys":         document_keys,
+            "sopKeys":              sop_keys,
+            "referenceProposalId":  reference_proposal_id,
+        }).encode(),
+    )
+
+    return _response(200, {"proposalId": proposal_id, "status": "PROCESSING"})
+
+
+def _handle_async_generate(event: dict) -> None:
+    """Internal: called asynchronously to run Gemini generation and update DynamoDB."""
+    proposal_id           = event["proposalId"]
+    survey_notes          = event.get("surveyNotes", "")
+    photo_keys            = event.get("photoKeys") or []
+    sop_keys              = event.get("sopKeys") or []
+    reference_proposal_id = event.get("referenceProposalId")
+    draft_table           = dynamodb.Table(DRAFT_TABLE_NAME)
+
     try:
-        # Load SOP guidelines from S3
-        sop_content = _fetch_sop_content(sop_keys) if sop_keys else "(No SOP documents provided)"
+        sop_content        = _fetch_sop_content(sop_keys) if sop_keys else "(No SOP documents provided)"
+        reference_sections = _fetch_reference_sections(reference_proposal_id) if reference_proposal_id else []
+        system_prompt      = _build_system_prompt(sop_content)
+        user_prompt_text   = _build_user_prompt(survey_notes, reference_sections)
+        image_bytes_list   = _fetch_image_bytes(photo_keys) if photo_keys else []
 
-        # Load reference proposal sections
-        reference_sections = []
-        if reference_proposal_id:
-            reference_sections = _fetch_reference_sections(reference_proposal_id)
-
-        # Build AI prompts
-        system_prompt    = _build_system_prompt(sop_content)
-        user_prompt_text = _build_user_prompt(survey_notes, reference_sections)
-
-        # Download site photos
-        image_bytes_list = _fetch_image_bytes(photo_keys) if photo_keys else []
-
-        # Build multimodal content
         parts = [types.Part.from_text(text=user_prompt_text)]
         for image_bytes in image_bytes_list:
             parts.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
 
-        # Call Gemini AI with retry logic
         client   = genai.Client(api_key=_get_gemini_api_key())
         last_exc = None
+        response = None
         for attempt in range(4):
             try:
                 response = client.models.generate_content(
@@ -265,39 +295,29 @@ def handle_generate(event: dict) -> dict:
                 if attempt < 3 and (is_rate_limit or is_overloaded):
                     match = re.search(r"retryDelay['\"]?\s*[:\s]+['\"]?(\d+)", err_str)
                     wait = int(match.group(1)) if match else (45 if is_rate_limit else 5)
-                    wait = min(wait, 50)
-                    time.sleep(wait)
+                    time.sleep(min(wait, 50))
                 else:
                     break
-        else:
-            pass
-        if last_exc and 'response' not in dir():
+
+        if response is None:
             raise last_exc
 
-        # Parse and validate AI response
         sections = _parse_and_validate_response(response.text)
 
-        # Build draft record
-        proposal_id = str(uuid.uuid4())
-        created_at  = datetime.now(timezone.utc).isoformat()
-
-        record = {
-            "proposalId":          proposal_id,
-            "surveyNotes":         survey_notes,
-            "aiGeneratedSections": sections,
-            "status":              "PENDING",
-            "createdAt":           created_at,
-            "version":             1,
-        }
-
-        # Save draft to DynamoDB
-        draft_table = dynamodb.Table(DRAFT_TABLE_NAME)
-        draft_table.put_item(Item=record)
-
-        return _response(200, record)
+        draft_table.update_item(
+            Key={"proposalId": proposal_id},
+            UpdateExpression="SET #s = :s, aiGeneratedSections = :sec, surveyNotes = :sn",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":s": "PENDING", ":sec": sections, ":sn": survey_notes},
+        )
 
     except Exception as exc:
-        return _response(502, {"error": str(exc)})
+        draft_table.update_item(
+            Key={"proposalId": proposal_id},
+            UpdateExpression="SET #s = :s, errorMessage = :e",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":s": "ERROR", ":e": str(exc)},
+        )
 
 
 def handle_upload_url(event: dict) -> dict:
@@ -438,6 +458,12 @@ def handle_get_proposal(proposal_id: str) -> dict:
 
 def handler(event: dict, context=None) -> dict:
     """Entry point called by API Gateway. Routes based on HTTP method and path."""
+
+    # Internal async invocation from handle_generate
+    if event.get("_async_generate"):
+        _handle_async_generate(event)
+        return {}
+
     http_method = event.get("httpMethod", "")
     resource    = event.get("resource", event.get("path", ""))
 

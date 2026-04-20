@@ -177,7 +177,7 @@ export default function DraftOutput({ draft, error, onApprove, onRetry }: DraftO
 
           return (
             <div
-              key={section.sectionName}
+              key={`${section.sectionName}-${idx}`}
               className="border border-gray-200 rounded-xl overflow-hidden transition-all duration-200"
               data-testid={`section-${section.sectionName}`}
             >

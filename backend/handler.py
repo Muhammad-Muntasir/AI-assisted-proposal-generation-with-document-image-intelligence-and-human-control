@@ -312,11 +312,18 @@ def _handle_async_generate(event: dict) -> None:
         )
 
     except Exception as exc:
+        err_str = str(exc)
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+            clean_error = "Gemini API quota exceeded. Please wait a few minutes and try again, or upgrade your Gemini API plan."
+        elif "503" in err_str or "UNAVAILABLE" in err_str:
+            clean_error = "Gemini AI is currently overloaded. Please wait a moment and try again."
+        else:
+            clean_error = err_str
         draft_table.update_item(
             Key={"proposalId": proposal_id},
             UpdateExpression="SET #s = :s, errorMessage = :e",
             ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={":s": "ERROR", ":e": str(exc)},
+            ExpressionAttributeValues={":s": "ERROR", ":e": clean_error},
         )
 
 
@@ -398,38 +405,38 @@ def handle_approve(event: dict) -> dict:
 
 
 def handle_list_proposals() -> dict:
-    """GET /proposals — List all proposals."""
+    """GET /proposals — List all proposals (deduped, approved takes priority)."""
     draft_table    = dynamodb.Table(DRAFT_TABLE_NAME)
     approved_table = dynamodb.Table(APPROVED_TABLE_NAME)
 
-    # Scan draft table
     draft_result = draft_table.scan(
         ProjectionExpression="proposalId, #s, createdAt",
         ExpressionAttributeNames={"#s": "status"},
     )
-    drafts = [
-        {
-            "proposalId": item["proposalId"],
-            "status":     item.get("status", "PENDING"),
-            "createdAt":  item.get("createdAt"),
-        }
-        for item in draft_result.get("Items", [])
-    ]
-
-    # Scan approved table
     approved_result = approved_table.scan(
         ProjectionExpression="proposalId, approvedAt",
     )
-    approved = [
-        {
-            "proposalId": item["proposalId"],
+
+    proposals: dict = {}
+
+    for item in draft_result.get("Items", []):
+        pid = item["proposalId"]
+        proposals[pid] = {
+            "proposalId": pid,
+            "status":     item.get("status", "PENDING"),
+            "createdAt":  item.get("createdAt"),
+        }
+
+    # Approved overrides draft entry for same proposalId
+    for item in approved_result.get("Items", []):
+        pid = item["proposalId"]
+        proposals[pid] = {
+            "proposalId": pid,
             "status":     "APPROVED",
             "approvedAt": item.get("approvedAt"),
         }
-        for item in approved_result.get("Items", [])
-    ]
 
-    return _response(200, drafts + approved)
+    return _response(200, list(proposals.values()))
 
 
 def handle_get_proposal(proposal_id: str) -> dict:
